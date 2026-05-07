@@ -1,0 +1,16 @@
+corridor,firm_type,payment instrument,pickup method,speed actual,Surveyed send amount (USD),predicted_fair_cost_pct
+AGONAM,Money Transfer Operator,"Bank account transfer,Cash",Cash,Same day,33000.0,7.68
+AREBGD,Money Transfer Operator,Cash,Cash,Same day,735.0,11.69
+AREEGY,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,7.62
+AREIDN,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,5.29
+AREIND,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,8.36
+AREJOR,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,3.32
+ARELKA,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,8.98
+ARENPL,Money Transfer Operator,Cash,Cash,2 days,735.0,4.9
+AREPAK,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,4.74
+AREPHL,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,5.24
+ARESDN,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,4.79
+ARESSD,Money Transfer Operator,Cash,Cash,Less than one hour,735.0,8.16
+AREYEM,Money Transfer Operator,Bank account transfer,Cash,Less than one hour,735.0,4.36
+AUSCHN,Bank,Bank account transfer,Bank account,2 days,200.0,8.16
+AUSFJI,Money Transfer Operator,Cash,Cash,Less than one hour,200.0,7.28

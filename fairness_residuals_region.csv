@@ -1,0 +1,8 @@
+destination_region,mean,median,std,count
+Middle East & North Africa,0.049,-0.507,3.527,3444
+Latin America & Caribbean,0.031,-0.399,2.878,4954
+Sub-Saharan Africa,-0.005,-0.55,3.725,7903
+Europe & Central Asia,-0.013,-0.477,3.526,4454
+East Asia & Pacific,-0.016,-0.4,3.182,10079
+South Asia,-0.036,-0.484,3.017,7708
+..,-0.07,-0.511,4.003,756
