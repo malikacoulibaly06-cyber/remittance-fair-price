@@ -392,13 +392,12 @@ def main():
     print(f"[save] fair_price_examples.csv (15 corridors)")
 
     # ---- Persist the XGBoost model + feature schema for the Streamlit demo ----
-    with open(os.path.join(OUTPUT_DIR, "xgb_model.pkl"), "wb") as f:
-        pickle.dump(models["XGBoost"], f)
+    models["XGBoost"].save_model(os.path.join(OUTPUT_DIR, "xgb_model.json"))
     cat_options = {c: sorted(df[c].dropna().unique().tolist()) for c in CATEGORICAL_FEATURES}
     schema = {"feature_names": feature_names, "categorical_options": cat_options}
     with open(os.path.join(OUTPUT_DIR, "feature_schema.pkl"), "wb") as f:
         pickle.dump(schema, f)
-    print(f"[save] xgb_model.pkl + feature_schema.pkl  (used by streamlit_app.py)")
+    print(f"[save] xgb_model.json + feature_schema.pkl  (used by streamlit_app.py)")
 
     print("\n=== DONE ===  outputs/ folder contains all artifacts.")
 
