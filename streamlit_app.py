@@ -16,7 +16,6 @@ import pickle
 import numpy as np
 import pandas as pd
 import streamlit as st
-from xgboost import XGBRegressor
 
 st.set_page_config(page_title="Fair Remittance Price", page_icon="💸", layout="wide")
 
@@ -32,8 +31,8 @@ st.caption("Predicts the expected total cost (%) of a remittance based on the Wo
 @st.cache_resource
 def load_artifacts():
     """The training script saves these two files into ./outputs/."""
-    model = XGBRegressor()
-    model.load_model("outputs/xgb_model.json")
+    with open("outputs/xgb_model.pkl", "rb") as f:
+        model = pickle.load(f)
     with open("outputs/feature_schema.pkl", "rb") as f:
         schema = pickle.load(f)
     # schema = {"feature_names": [...], "categorical_options": {col: [unique values]}}
@@ -42,8 +41,8 @@ def load_artifacts():
 
 try:
     model, schema = load_artifacts()
-except (FileNotFoundError, Exception) as e:
-    st.error("Couldn't find `outputs/xgb_model.json`. "
+except FileNotFoundError:
+    st.error("Couldn't find `outputs/xgb_model.pkl`. "
              "Run `python project3_remittance_cost.py` once to train and save the model.")
     st.stop()
 
