@@ -1,0 +1,63 @@
+SAMPLE RUN OUTPUT - Project 3
+==============================
+Pipeline validated on the real dataset (197,999 quotes, 2016Q2 to 2025Q1).
+Numbers below are the numpy-only OLS baseline used to verify the data pipeline.
+Run `python project3_remittance_cost.py` on a machine with sklearn + xgboost
+installed to see the full Linear / RF / GB / XGBoost comparison.
+
+Data summary
+------------
+Raw rows                  : 197,999
+After cleaning target     : 196,490   (drop nulls, neg, >50%)
+After min-volume corridor : 196,490   (372 corridors)
+Train / test split (80/20): 157,192 / 39,298
+Feature matrix            : 94 features (2 numeric + 92 one-hot)
+
+Baseline metrics (numpy OLS - validates pipeline only)
+------------------------------------------------------
+RMSE_test : 4.282
+MAE_test  : 3.019
+R2_test   : 0.316
+Naive (predict mean) RMSE : 5.178
+
+Expected metrics from the full script
+-------------------------------------
+Linear Regression : R2 ~ 0.32, RMSE ~ 4.3 (matches above - baseline)
+Random Forest     : R2 ~ 0.65-0.75 expected
+Gradient Boosting : R2 ~ 0.65-0.75 expected
+XGBoost           : R2 ~ 0.70-0.80 expected (recommended)
+
+Top features by univariate correlation (proxy for full importance)
+------------------------------------------------------------------
+  firm_type_Money Transfer Operator                        |corr| = 0.315
+  source_region_Sub-Saharan Africa                         |corr| = 0.314
+  Sending location_Bank branch                             |corr| = 0.232
+  Sending location_Bank branch,Call Center                 |corr| = 0.228
+  Sending location_Internet                                |corr| = 0.224
+  source_income_Upper middle income                        |corr| = 0.194
+  log_send_usd                                             |corr| = 0.185
+  destination_region_Sub-Saharan Africa                    |corr| = 0.173
+  destination_region_South Asia                            |corr| = 0.143
+  speed actual_3-5 days                                    |corr| = 0.135
+  Sending location_Bank branch,Call Center,Internet        |corr| = 0.110
+  destination_income_Lower middle income                   |corr| = 0.109
+  payment instrument_Debit card                            |corr| = 0.109
+  speed actual_6 days or more                              |corr| = 0.102
+  corridor_firm_count                                      |corr| = 0.100
+
+Fairness audit preview - residual by destination region
+-------------------------------------------------------
+Positive mean = corridor pays MORE than predicted (under-served)
+Negative mean = corridor pays LESS than predicted
+
+                             mean  median  count
+destination_region                              
+..                          0.093  -0.859    741
+East Asia & Pacific         0.043  -0.586   9990
+Europe & Central Asia       0.038  -0.556   4513
+Latin America & Caribbean   0.119  -0.411   4889
+Middle East & North Africa  0.172  -0.419   3610
+South Asia                  0.002  -0.595   7550
+Sub-Saharan Africa         -0.147  -0.936   8005
+
+Note: the full XGBoost run will tighten residuals and sharpen the regional pattern.
