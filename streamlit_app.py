@@ -1,8 +1,7 @@
 """
 Fair Remittance Price — Comparison Tool
-A practical app for senders: enter source country, destination country, and amount;
-get a ranked list of every available service with predicted cost in $ and %, plus
-guidance on which channel is cheapest.
+A practical app for senders: compare every available service for a corridor,
+with predicted cost in USD and percent, and guidance on the cheapest channel.
 """
 
 import os
@@ -12,11 +11,15 @@ import pandas as pd
 import streamlit as st
 from xgboost import XGBRegressor
 
-st.set_page_config(page_title="Fair Remittance Price", page_icon="💸", layout="wide")
+st.set_page_config(
+    page_title="Fair Remittance Price",
+    page_icon="💸",
+    layout="wide",
+)
 
 
 # ---------------------------------------------------------------------------
-# Load model, feature schema, and corridor lookup
+# Load model, schema, and corridor lookup
 # ---------------------------------------------------------------------------
 @st.cache_resource
 def load_artifacts():
@@ -45,12 +48,70 @@ feature_names = schema["feature_names"]
 
 
 # ---------------------------------------------------------------------------
+# Sidebar — about, data source, similar tools
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("### About this project")
+    st.markdown(
+        "I'm a student in the United States taking fintech courses, and I wanted "
+        "to understand the economics of cross-border payments — specifically why "
+        "remittances cost so much and which channels work best for the people "
+        "actually sending money home. This tool is the result of that research."
+    )
+
+    st.markdown("### Data source")
+    st.markdown(
+        "Quotes come from the World Bank's "
+        "[Remittance Prices Worldwide](https://remittanceprices.worldbank.org/) "
+        "database — the same dataset the UN uses to track progress on the SDG 10.c "
+        "target (reduce remittance costs to under 3%). It is updated quarterly. "
+        "This app uses the eight most recent quarters."
+    )
+
+    st.markdown("### Coverage")
+    st.markdown(
+        f"**{lookup['source_name'].nunique()} sending countries**, "
+        f"**{lookup['destination_name'].nunique()} receiving countries**, "
+        f"**{lookup['corridor'].nunique()} corridors**, "
+        f"**{lookup['firm'].nunique()} firms**.\n\n"
+        "The World Bank tracks a representative sample of the largest corridors "
+        "by volume — not every country pair in the world. If your corridor isn't "
+        "listed, it isn't in the source dataset. I'd like to expand coverage by "
+        "merging in provider-published rates and user-reported quotes; that's the "
+        "next iteration of the project."
+    )
+
+    st.markdown("### Similar tools")
+    st.markdown(
+        "- **[remittanceprices.worldbank.org](https://remittanceprices.worldbank.org/)** "
+        "— the official, independent World Bank portal. The most authoritative source, "
+        "but designed as a research tool, not a sender-friendly comparator.\n"
+        "- **[monito.com](https://www.monito.com/)** — independent commercial comparison "
+        "platform; good UX, broad coverage, monetised through provider referrals (so "
+        "ranking can be influenced).\n"
+        "- **Provider sites** (Wise, Western Union, Remitly, etc.) all run their own "
+        "price-comparison pages, but they are owned by the providers themselves and "
+        "naturally favour their own service. Treat their numbers with caution.\n\n"
+        "This app sits closer to the World Bank end of the spectrum — model-based, "
+        "no referral revenue, no incentive to favour any particular firm."
+    )
+
+    st.markdown("---")
+    st.caption(
+        "Predicted costs are model estimates from an XGBoost regression trained on "
+        "~196,000 historical quotes. Always verify with the provider before sending."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.title("💸 Fair Remittance Price — Comparison Tool")
-st.caption("Compare every remittance service available for your corridor. "
-           "Predicted cost is from an XGBoost model trained on ~196,000 World Bank quotes. "
-           "**Use this to pick the cheapest channel before you send.**")
+st.title("Fair Remittance Price")
+st.markdown(
+    "Compare every remittance service available for your corridor. "
+    "Predicted cost is from a regression model trained on World Bank data. "
+    "Use it to pick the cheapest channel before you send."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -61,12 +122,9 @@ left, right = st.columns([2, 1])
 with left:
     c1, c2 = st.columns(2)
     with c1:
-        source_country = st.selectbox(
-            "📤 Sending from",
-            sorted(lookup["source_name"].unique()),
-            index=sorted(lookup["source_name"].unique()).index("United States")
-                  if "United States" in lookup["source_name"].unique() else 0,
-        )
+        sources = sorted(lookup["source_name"].unique())
+        default_src = sources.index("United States") if "United States" in sources else 0
+        source_country = st.selectbox("From", sources, index=default_src)
     with c2:
         valid_destinations = sorted(
             lookup.loc[lookup["source_name"] == source_country, "destination_name"].unique()
@@ -74,36 +132,33 @@ with left:
         if not valid_destinations:
             st.warning("No corridors available from that country in the last 8 quarters.")
             st.stop()
-        default_dest = "Mexico" if "Mexico" in valid_destinations else valid_destinations[0]
-        destination_country = st.selectbox(
-            "📥 Sending to",
-            valid_destinations,
-            index=valid_destinations.index(default_dest),
-        )
+        default_dst = valid_destinations.index("Mexico") if "Mexico" in valid_destinations else 0
+        destination_country = st.selectbox("To", valid_destinations, index=default_dst)
 
-    send_usd = st.number_input("💵 Send amount (USD)", min_value=10.0, max_value=10000.0,
-                                value=200.0, step=50.0)
+    send_usd = st.number_input(
+        "Send amount (USD)",
+        min_value=10.0, max_value=10000.0, value=200.0, step=50.0,
+    )
 
 with right:
     speed_choice = st.radio(
-        "⚡ Speed required",
-        ["Any", "Same day or faster", "Less than one hour"],
+        "Speed required",
+        ["Any", "Same day or faster", "Within one hour"],
         index=0,
     )
-    show_top_n = st.slider("Show top N options", 5, 30, 10)
+    show_top_n = st.slider("Show top N services", 5, 30, 10)
 
-st.markdown("---")
+st.markdown("")
 
 
 # ---------------------------------------------------------------------------
-# Build the model input matrix from every available service in this corridor
+# Predict cost for every available service in this corridor
 # ---------------------------------------------------------------------------
 def predict_for_corridor(src: str, dst: str, amount_usd: float) -> pd.DataFrame:
     sub = lookup[(lookup["source_name"] == src) & (lookup["destination_name"] == dst)].copy()
     if sub.empty:
         return sub
 
-    # Numeric features
     sub["log_send_usd"] = np.log1p(amount_usd)
 
     cat_cols = ["firm_type", "payment instrument", "Sending location", "speed actual",
@@ -112,7 +167,6 @@ def predict_for_corridor(src: str, dst: str, amount_usd: float) -> pd.DataFrame:
     for c in cat_cols:
         sub[c] = sub[c].fillna("UNK").astype(str)
 
-    # One-hot match training schema
     X_cat = pd.get_dummies(sub[cat_cols], drop_first=True)
     X_num = sub[["log_send_usd", "corridor_firm_count"]].astype(float).reset_index(drop=True)
     X = pd.concat([X_num, X_cat.reset_index(drop=True)], axis=1)
@@ -127,8 +181,7 @@ def predict_for_corridor(src: str, dst: str, amount_usd: float) -> pd.DataFrame:
 
 results = predict_for_corridor(source_country, destination_country, send_usd)
 
-# Speed filter
-if speed_choice == "Less than one hour":
+if speed_choice == "Within one hour":
     results = results[results["speed actual"].str.contains("Less than one hour", na=False)]
 elif speed_choice == "Same day or faster":
     results = results[results["speed actual"].isin(
@@ -140,58 +193,55 @@ if results.empty:
 
 
 # ---------------------------------------------------------------------------
-# Smart recommendation banner
+# Summary line + benchmark
 # ---------------------------------------------------------------------------
 cheapest = results.iloc[0]
 fast_options = results[results["speed actual"].str.contains(
     "Less than one hour|Within minutes|Real time", regex=True, na=False)]
 cheapest_fast = fast_options.iloc[0] if len(fast_options) else None
 
-st.subheader(f"🏆 Recommendation for {source_country} → {destination_country} on ${send_usd:.0f}")
+avg = results["pred_cost_pct"].mean()
+sdg_target = 3.0
+savings_vs_avg = (avg - cheapest["pred_cost_pct"]) / 100 * send_usd
+sdg_status = (
+    "below the UN SDG 10.c target of 3%."
+    if cheapest["pred_cost_pct"] <= sdg_target
+    else f"{cheapest['pred_cost_pct'] - sdg_target:+.1f} percentage points above the UN SDG 10.c target of 3%."
+)
 
-cols = st.columns(3 if cheapest_fast is not None else 2)
+st.subheader(f"{source_country} → {destination_country} on ${send_usd:.0f}")
 
-with cols[0]:
-    st.success(
-        f"**Cheapest overall**\n\n"
-        f"**{cheapest['firm']}**  \n"
-        f"{cheapest['payment instrument']} → {cheapest['pickup method']}  \n"
-        f"⏱️ {cheapest['speed actual']}\n\n"
-        f"💰 **{cheapest['pred_cost_pct']:.2f}%**  ≈  **${cheapest['pred_cost_usd']:.2f}**\n\n"
-        f"You'd receive ≈ **${cheapest['amount_received_usd']:.2f}**"
-    )
+summary_cols = st.columns(3)
+with summary_cols[0]:
+    st.metric("Cheapest service",
+              f"{cheapest['pred_cost_pct']:.2f}%",
+              f"${cheapest['pred_cost_usd']:.2f} fee")
+    st.caption(f"**{cheapest['firm']}** — {cheapest['payment instrument'].lower()} → "
+               f"{cheapest['pickup method'].lower()} ({cheapest['speed actual'].lower()})")
 
-if cheapest_fast is not None:
-    with cols[1]:
-        st.info(
-            f"**Cheapest under 1 hour**\n\n"
-            f"**{cheapest_fast['firm']}**  \n"
-            f"{cheapest_fast['payment instrument']} → {cheapest_fast['pickup method']}\n\n"
-            f"💰 **{cheapest_fast['pred_cost_pct']:.2f}%**  ≈  "
-            f"**${cheapest_fast['pred_cost_usd']:.2f}**"
-        )
-    benchmark_col = cols[2]
-else:
-    benchmark_col = cols[1]
+with summary_cols[1]:
+    if cheapest_fast is not None:
+        st.metric("Cheapest under one hour",
+                  f"{cheapest_fast['pred_cost_pct']:.2f}%",
+                  f"${cheapest_fast['pred_cost_usd']:.2f} fee")
+        st.caption(f"**{cheapest_fast['firm']}** — "
+                   f"{cheapest_fast['payment instrument'].lower()} → "
+                   f"{cheapest_fast['pickup method'].lower()}")
+    else:
+        st.metric("Cheapest under one hour", "—")
+        st.caption("No services in this corridor settle within an hour.")
 
-with benchmark_col:
-    avg = results["pred_cost_pct"].mean()
-    sdg_target = 3.0
-    delta_vs_sdg = cheapest["pred_cost_pct"] - sdg_target
-    sdg_status = "✅ Beats UN 3% target" if cheapest["pred_cost_pct"] <= 3 \
-                 else f"⚠️ {delta_vs_sdg:+.1f} pp vs UN 3% target"
-    st.warning(
-        f"**Corridor benchmark**\n\n"
-        f"Avg of {len(results)} services: **{avg:.2f}%**  \n"
-        f"Cheapest savings vs avg: **${(avg - cheapest['pred_cost_pct'])/100*send_usd:.2f}**\n\n"
-        f"{sdg_status}"
-    )
+with summary_cols[2]:
+    st.metric("Corridor average",
+              f"{avg:.2f}%",
+              f"You save ${savings_vs_avg:.2f} vs. average")
+    st.caption(f"Cheapest is {sdg_status}")
 
 
 # ---------------------------------------------------------------------------
 # Full ranked comparison table
 # ---------------------------------------------------------------------------
-st.subheader(f"All {len(results)} services available, ranked cheapest first")
+st.markdown(f"##### All {len(results)} services available, ranked cheapest first")
 
 display = results.head(show_top_n).copy()
 display.insert(0, "Rank", range(1, len(display) + 1))
@@ -209,11 +259,11 @@ display = display.rename(columns={
 
 def color_row(row):
     if row["Rank"] == 1:
-        return ["background-color: #d4edda"] * len(row)
+        return ["background-color: #e8f3ec"] * len(row)
     if row["Cost %"] <= 3:
-        return ["background-color: #e8f5e9"] * len(row)
+        return ["background-color: #f2f8f4"] * len(row)
     if row["Cost %"] >= 8:
-        return ["background-color: #ffebee"] * len(row)
+        return ["background-color: #fbecea"] * len(row)
     return [""] * len(row)
 
 
@@ -227,31 +277,33 @@ st.dataframe(styled, use_container_width=True, hide_index=True)
 # ---------------------------------------------------------------------------
 # Channel guidance
 # ---------------------------------------------------------------------------
-with st.expander("💡 Which channel is cheapest? — General guidance"):
-    st.markdown("""
-- **Internet/online + bank-account pickup** is usually the cheapest combo. Mobile money
-  pickup (in markets where it exists) is often cheaper still.
-- **Cash-in cash-out** through agents tends to be the most expensive — the convenience
-  premium is real.
-- **Banks** charge more than dedicated MTOs (Money Transfer Operators) on most corridors.
-  Mobile-money providers and digital-only fintechs (Wise, Remitly, WorldRemit) usually win.
-- **Speed costs money**, but not always: on busy corridors the cheapest provider is also
-  often instant. Use the "Less than one hour" filter to check.
-- **Small amounts ($200) are 2–3× more expensive in % terms than $500** — if you can wait
-  and consolidate, you save real money.
-- **Compare regularly** — provider FX margins change weekly. Cheapest today ≠ cheapest next month.
-    """)
+with st.expander("Notes on channel costs"):
+    st.markdown(
+        "- Online + bank-account or mobile-wallet pickup is usually the cheapest "
+        "combination on most corridors.\n"
+        "- Cash-in / cash-out through agents is consistently the most expensive — "
+        "the convenience premium is real.\n"
+        "- Banks generally charge more than dedicated money-transfer operators "
+        "(MTOs). Mobile-money providers and digital-only fintechs (Wise, Remitly, "
+        "WorldRemit) tend to win on price.\n"
+        "- Speed and price aren't always a trade-off — on competitive corridors "
+        "the cheapest provider is also instant. Use the speed filter to check.\n"
+        "- Cost % is regressive on amount: $200 transfers cost roughly 2–3× more "
+        "as a percentage than $500. If you can consolidate, you save real money.\n"
+        "- Provider FX margins move weekly. Cheapest today isn't necessarily "
+        "cheapest next month — re-check before each send."
+    )
 
-with st.expander("📊 How the model works"):
-    st.markdown(f"""
-- **Data**: World Bank Remittance Prices Worldwide (2011–Q1 2025). This app uses the last
-  8 quarters of quotes ({len(lookup):,} unique service combinations across {lookup['corridor'].nunique()}
-  corridors and {lookup['firm'].nunique()} firms).
-- **Model**: XGBoost regression — R² ≈ 0.7+, MAE ≈ 1.5 percentage points.
-- **Features**: log-transformed send amount, corridor competition, firm type, payment
-  instrument, sending location, speed, pickup method, source/destination region & income.
-- **Limitation**: predictions are *modelled fair price* based on historical patterns, not
-  live quotes. Always check the actual provider before sending.
-    """)
-
-st.caption("Source: World Bank Remittance Prices Worldwide. Predictions are estimates — verify with the provider.")
+with st.expander("How the model works"):
+    st.markdown(
+        f"- **Data**: World Bank Remittance Prices Worldwide, last 8 quarters.\n"
+        f"- **Coverage**: {len(lookup):,} unique service combinations across "
+        f"{lookup['corridor'].nunique()} corridors and {lookup['firm'].nunique()} firms.\n"
+        f"- **Model**: XGBoost regression — R² ≈ 0.7+, MAE ≈ 1.5 percentage points "
+        f"on the held-out test set.\n"
+        f"- **Features**: log-transformed send amount, corridor competition, firm type, "
+        f"payment instrument, sending location, speed, pickup method, and "
+        f"source/destination region & income group.\n"
+        f"- **Limitation**: predictions are *modelled fair price* based on historical "
+        f"patterns, not live quotes. Always verify with the actual provider."
+    )
