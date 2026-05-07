@@ -1,21 +1,13 @@
 """
 Streamlit app — Fair Remittance Price Calculator
-Live demo: enter a corridor + firm + instrument, get a predicted fair cost %.
-
-Deployment:
-  1. Push this repo to GitHub
-  2. Sign in at https://share.streamlit.io with your GitHub account
-  3. Click "New app" → pick this repo → set "Main file path" to streamlit_app.py
-  4. Click Deploy. Free, public URL in ~2 minutes.
-
-Local run:
-  streamlit run streamlit_app.py
 """
 
 import pickle
+import os
 import numpy as np
 import pandas as pd
 import streamlit as st
+from xgboost import XGBRegressor
 
 st.set_page_config(page_title="Fair Remittance Price", page_icon="💸", layout="wide")
 
@@ -25,34 +17,33 @@ st.caption("Predicts the expected total cost (%) of a remittance based on the Wo
            "trained on ~196,000 quotes across 372 corridors.")
 
 
-# ---------------------------------------------------------------------------
-# Load the trained model + the feature schema saved alongside it
-# ---------------------------------------------------------------------------
 @st.cache_resource
 def load_artifacts():
-    """The training script saves these two files into ./outputs/."""
-    with open("outputs/xgb_model.pkl", "rb") as f:
-        model = pickle.load(f)
-    with open("outputs/feature_schema.pkl", "rb") as f:
-        schema = pickle.load(f)
-    # schema = {"feature_names": [...], "categorical_options": {col: [unique values]}}
-    return model, schema
+    """Look for the model in either ./outputs/ (local) or the repo root (deployed)."""
+    candidates = [
+        ("outputs/xgb_model.json", "outputs/feature_schema.pkl"),
+        ("xgb_model.json",         "feature_schema.pkl"),
+    ]
+    for model_path, schema_path in candidates:
+        if os.path.exists(model_path) and os.path.exists(schema_path):
+            model = XGBRegressor()
+            model.load_model(model_path)
+            with open(schema_path, "rb") as f:
+                schema = pickle.load(f)
+            return model, schema
+    raise FileNotFoundError("xgb_model.json and feature_schema.pkl not found.")
 
 
 try:
     model, schema = load_artifacts()
 except FileNotFoundError:
-    st.error("Couldn't find `outputs/xgb_model.pkl`. "
-             "Run `python project3_remittance_cost.py` once to train and save the model.")
+    st.error("Couldn't find `xgb_model.json` or `feature_schema.pkl` in the repo. "
+             "Make sure both files are committed.")
     st.stop()
 
 feature_names = schema["feature_names"]
 opts = schema["categorical_options"]
 
-
-# ---------------------------------------------------------------------------
-# UI
-# ---------------------------------------------------------------------------
 col1, col2 = st.columns(2)
 
 with col1:
@@ -75,9 +66,7 @@ with col2:
 corridor_firm_count = st.slider("Number of competing firms in this corridor", 1, 30, 8,
                                 help="More competition usually → lower fair price")
 
-# ---------------------------------------------------------------------------
-# Build the model input row that matches the training schema
-# ---------------------------------------------------------------------------
+
 def build_row():
     raw = {
         "log_send_usd": np.log1p(send_usd),
@@ -94,12 +83,10 @@ def build_row():
         "source_income": source_income,
         "destination_income": destination_income,
     }
-    # one-hot using the SAME drop_first=True dummy structure as training
     df_in = pd.DataFrame([cat_inputs])
     df_dum = pd.get_dummies(df_in, drop_first=True)
     for k, v in raw.items():
         df_dum[k] = v
-    # Align to the trained feature schema (missing columns -> 0)
     df_aligned = df_dum.reindex(columns=feature_names, fill_value=0)
     return df_aligned
 
@@ -113,11 +100,11 @@ if st.button("Predict fair price", type="primary"):
               delta=f"{pred - sdg_target:+.2f} pp vs SDG 3% target",
               delta_color="inverse")
     if pred <= sdg_target:
-        st.success(f"Meets the UN SDG 10.c target (≤ 3%) ✔")
+        st.success("Meets the UN SDG 10.c target (≤ 3%) ✔")
     elif pred <= 6.5:
-        st.info(f"Around the global average (~6.4%).")
+        st.info("Around the global average (~6.4%).")
     else:
-        st.warning(f"Above global average — likely overpriced corridor/instrument.")
+        st.warning("Above global average — likely overpriced corridor/instrument.")
 
     fee_usd = pred / 100 * send_usd
     st.caption(f"On ${send_usd:.0f} that's roughly **${fee_usd:.2f}** in total cost.")
@@ -125,13 +112,9 @@ if st.button("Predict fair price", type="primary"):
 with st.expander("How the model works"):
     st.markdown("""
     - **Target**: `Total cost (%)` from the World Bank RPW dataset
-    - **Features**: log-transformed send amount, corridor competition, plus 9 one-hot encoded
-      categoricals (firm type, payment instrument, sending location, speed, pickup method,
-      source/destination region & income group)
+    - **Features**: log-transformed send amount, corridor competition, plus 9 one-hot encoded categoricals
     - **Models trained**: Linear Regression → Random Forest → Gradient Boosting → XGBoost
     - **Best model**: XGBoost (R² ≈ 0.7+, RMSE ≈ 2.5 pp)
-    - **Limitations**: random 80/20 split (not temporal); no provider name; doesn't yet
-      account for promotional pricing
     """)
 
 st.caption("Source data: World Bank — Remittance Prices Worldwide (2011–Q1 2025)")
